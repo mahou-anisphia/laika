@@ -1,4 +1,4 @@
-package handler
+package health
 
 import (
 	"context"
@@ -8,18 +8,18 @@ import (
 	"time"
 )
 
-type HealthHandler struct {
+type Handler struct {
 	DB *sql.DB
 	// add other deps here: RedisClient, ExternalAPIURL, etc.
 }
 
-type healthStatus struct {
+type status struct {
 	Status string            `json:"status"`  // "ok" | "degraded"
 	Checks map[string]string `json:"checks"`  // dep name → "ok" | "error: ..."
 	Time   string            `json:"time"`
 }
 
-func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Check(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
@@ -44,14 +44,14 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	//     checks["redis"] = "ok"
 	// }
 
-	status := http.StatusOK
+	code := http.StatusOK
 	if overall == "degraded" {
-		status = http.StatusServiceUnavailable
+		code = http.StatusServiceUnavailable
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(healthStatus{
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(status{
 		Status: overall,
 		Checks: checks,
 		Time:   time.Now().UTC().Format(time.RFC3339),
