@@ -7,9 +7,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"laika/internal/config"
-	"laika/internal/email"
-	"laika/internal/health"
 	"laika/internal/middleware"
+	"laika/internal/modules/email"
+	"laika/internal/modules/health"
 	"laika/internal/provider"
 	"laika/pkg/logger"
 )
