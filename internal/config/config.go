@@ -5,11 +5,17 @@ import "os"
 // Config is the single root config loaded at startup. Add new sub-configs here
 // as the service grows; their struct definitions live in their own files.
 type Config struct {
+	Port string
 	SMTP SMTP
 }
 
 func Load() Config {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 	return Config{
+		Port: port,
 		SMTP: SMTP{
 			Host:     os.Getenv("SMTP_HOST"),
 			Port:     os.Getenv("SMTP_PORT"),

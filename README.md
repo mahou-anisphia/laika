@@ -2,10 +2,44 @@
 
 Production-ready Go REST API boilerplate.
 
+## Setup
+
+### Local development
+
+```bash
+cp .env.example .env   # fill in your values
+make run               # start dev server (reads PORT from .env or defaults to 8080)
+```
+
+### Docker (recommended for production)
+
+```bash
+cp .env.example .env   # fill in your values
+chmod +x script.sh
+./script.sh            # checks .env, stops any old container, builds & deploys
+```
+
+The script will:
+1. Abort if `.env` is missing
+2. Stop and remove any existing `laika` container
+3. Build a fresh image using the multi-stage `Dockerfile`
+4. Start the container with `--env-file .env` on the port defined in `.env`
+
+### Environment variables
+
+| Variable       | Default | Description                        |
+|---------------|---------|------------------------------------|
+| `PORT`        | `8080`  | Port the server listens on         |
+| `SMTP_HOST`   | —       | SMTP server hostname               |
+| `SMTP_PORT`   | —       | SMTP server port (e.g. `587`)      |
+| `SMTP_USERNAME` | —     | SMTP auth username                 |
+| `SMTP_PASSWORD` | —     | SMTP auth password                 |
+| `SMTP_FROM`   | —       | Sender address for outbound email  |
+
 ## Commands
 
 ```bash
-make run      # start the dev server on :8080
+make run      # start the dev server (respects PORT env var, defaults to 8080)
 make build    # compile to bin/server
 make tidy     # sync go.mod / go.sum
 ```

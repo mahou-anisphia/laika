@@ -39,8 +39,9 @@ func main() {
 
 	r.Post("/noti/email", emailHdl.SendEmail)
 
-	base.Info("server starting", "port", "8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	addr := ":" + cfg.Port
+	base.Info("server starting", "port", cfg.Port)
+	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatal(err)
 	}
 }
