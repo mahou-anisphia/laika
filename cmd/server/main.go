@@ -18,11 +18,18 @@ func main() {
 	base := logger.New()
 
 	cfg := config.Load()
-	smtpProvider := provider.NewSMTPProvider(cfg.SMTP)
-	emailSvc := email.NewService(smtpProvider, cfg.SMTP.From, base)
+
+	// Build one Service per named email flow. To add a new flow, add its
+	// SMTP_<FLOW>_* env vars and a matching entry in cfg.EmailFlows.
+	flows := make(map[string]*email.Service, len(cfg.EmailFlows))
+	for name, smtpCfg := range cfg.EmailFlows {
+		p := provider.NewSMTPProvider(smtpCfg)
+		flows[name] = email.NewService(p, smtpCfg.From, base)
+	}
+	emailRegistry := email.NewRegistry(flows)
 
 	healthHdl := &health.Handler{}
-	emailHdl := email.NewHandler(emailSvc, base)
+	emailHdl := email.NewHandler(emailRegistry, base)
 
 	r := chi.NewRouter()
 
@@ -31,13 +38,16 @@ func main() {
 	r.Use(middleware.Recovery(base)) // 2. catch panics before logger writes
 	r.Use(middleware.Logger(base))   // 3. log after recovery so status is accurate
 
-	r.Get("/health", healthHdl.Check)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"message":"hello world"}`))
+	r.Route("/api", func(r chi.Router) {
+		r.Route("/v1", func(r chi.Router) {
+			r.Get("/health", healthHdl.Check)
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"message":"hello world"}`))
+			})
+			r.Post("/noti/email/{flow}", emailHdl.SendEmail)
+		})
 	})
-
-	r.Post("/noti/email", emailHdl.SendEmail)
 
 	addr := ":" + cfg.Port
 	base.Info("server starting", "port", cfg.Port)

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/mail"
 
+	"github.com/go-chi/chi/v5"
+
 	"laika/pkg/logger"
 )
 
@@ -35,19 +37,30 @@ type sendResponse struct {
 
 // -- Handler ------------------------------------------------------------------
 
-// Handler handles POST /noti/email. It validates the request, delegates to
-// Service, and maps the result to the appropriate HTTP status.
+// Handler handles POST /noti/email/{flow}. It resolves the named email flow
+// from the URL, validates the request, delegates to the matching Service, and
+// maps the result to the appropriate HTTP status.
 type Handler struct {
-	svc *Service
-	log *slog.Logger
+	registry *Registry
+	log      *slog.Logger
 }
 
-func NewHandler(svc *Service, log *slog.Logger) *Handler {
-	return &Handler{svc: svc, log: log}
+func NewHandler(registry *Registry, log *slog.Logger) *Handler {
+	return &Handler{registry: registry, log: log}
 }
 
 func (h *Handler) SendEmail(w http.ResponseWriter, r *http.Request) {
 	log := logger.FromContext(r.Context(), h.log)
+
+	flow := chi.URLParam(r, "flow")
+	svc, ok := h.registry.Get(flow)
+	if !ok {
+		log.Warn("unknown email flow", "flow", flow, "available", h.registry.Names())
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": fmt.Sprintf("unknown email flow %q", flow),
+		})
+		return
+	}
 
 	var req sendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -63,11 +76,12 @@ func (h *Handler) SendEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info("email send request",
+		"flow", flow,
 		"recipient_count", len(req.Emails),
 		"message_type", req.MessageType,
 	)
 
-	svcResp := h.svc.Send(r.Context(), Request{
+	svcResp := svc.Send(r.Context(), Request{
 		Emails:      req.Emails,
 		MessageType: req.MessageType,
 		Subject:     req.Subject,
