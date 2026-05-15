@@ -1,59 +1,84 @@
 package health
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"time"
 )
 
-type Handler struct {
-	DB *sql.DB
-	// add other deps here: RedisClient, ExternalAPIURL, etc.
+// ComponentStatus is a boot-time snapshot for an optional module (email flow,
+// Discord, etc.). Available=false with Reason set means the module is
+// registered but unusable for this run.
+type ComponentStatus struct {
+	Available bool
+	Reason    string
 }
 
-type status struct {
-	Status string            `json:"status"`  // "ok" | "degraded"
-	Checks map[string]string `json:"checks"`  // dep name → "ok" | "error: ..."
-	Time   string            `json:"time"`
+// Handler reports a static, boot-time view of which optional modules are usable.
+// It does not re-probe on each request — checks at request time would add
+// latency to liveness probes and could thrash unstable backends. If a module
+// recovers mid-run, restart to refresh the snapshot.
+//
+// Status semantics:
+//   - "ok":       every registered module is available
+//   - "degraded": at least one module is available, at least one is not
+//   - "down":     no module is available (this is when the response goes 503)
+type Handler struct {
+	Email   map[string]ComponentStatus
+	Discord ComponentStatus
+}
+
+type componentDTO struct {
+	Status string `json:"status"` // "ok" | "unavailable"
+	Reason string `json:"reason,omitempty"`
+}
+
+type response struct {
+	Status  string                  `json:"status"` // "ok" | "degraded" | "down"
+	Email   map[string]componentDTO `json:"email"`
+	Discord componentDTO            `json:"discord"`
+	Time    string                  `json:"time"`
 }
 
 func (h *Handler) Check(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
+	totalAvailable, totalRegistered := 0, 0
 
-	checks := map[string]string{}
-	overall := "ok"
-
-	// Database ping — skipped until a *sql.DB is wired in via main.go
-	if h.DB != nil {
-		if err := h.DB.PingContext(ctx); err != nil {
-			checks["database"] = "error: " + err.Error()
-			overall = "degraded"
+	emailOut := make(map[string]componentDTO, len(h.Email))
+	for name, c := range h.Email {
+		totalRegistered++
+		if c.Available {
+			totalAvailable++
+			emailOut[name] = componentDTO{Status: "ok"}
 		} else {
-			checks["database"] = "ok"
+			emailOut[name] = componentDTO{Status: "unavailable", Reason: c.Reason}
 		}
 	}
 
-	// Add more dependency checks here, e.g. Redis:
-	// if err := h.Redis.Ping(ctx).Err(); err != nil {
-	//     checks["redis"] = "error: " + err.Error()
-	//     overall = "degraded"
-	// } else {
-	//     checks["redis"] = "ok"
-	// }
+	totalRegistered++
+	var discordOut componentDTO
+	if h.Discord.Available {
+		totalAvailable++
+		discordOut = componentDTO{Status: "ok"}
+	} else {
+		discordOut = componentDTO{Status: "unavailable", Reason: h.Discord.Reason}
+	}
 
+	overall := "ok"
 	code := http.StatusOK
-	if overall == "degraded" {
+	switch {
+	case totalAvailable == 0:
+		overall = "down"
 		code = http.StatusServiceUnavailable
+	case totalAvailable < totalRegistered:
+		overall = "degraded"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(status{
-		Status: overall,
-		Checks: checks,
-		Time:   time.Now().UTC().Format(time.RFC3339),
+	_ = json.NewEncoder(w).Encode(response{
+		Status:  overall,
+		Email:   emailOut,
+		Discord: discordOut,
+		Time:    time.Now().UTC().Format(time.RFC3339),
 	})
 }

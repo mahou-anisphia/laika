@@ -2,6 +2,7 @@ package provider
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	gosmtp "net/smtp"
@@ -12,6 +13,11 @@ import (
 
 	"laika/internal/config"
 )
+
+// ErrSMTPNotConfigured is returned by Probe when the flow has no credentials.
+// Treated as "skip this flow", not as an auth failure — caller decides whether
+// to warn or be silent.
+var ErrSMTPNotConfigured = errors.New("smtp: not configured")
 
 // Message holds the content fields shared across all recipients in a single send call.
 type Message struct {
@@ -34,6 +40,30 @@ type SMTPProvider struct {
 
 func NewSMTPProvider(cfg config.SMTP) *SMTPProvider {
 	return &SMTPProvider{cfg: cfg}
+}
+
+// Probe verifies the flow can dial, negotiate TLS, and authenticate against the
+// SMTP server. It does not send mail. Returns ErrSMTPNotConfigured when the
+// required fields are blank — no network call is attempted in that case.
+func (p *SMTPProvider) Probe() error {
+	if p.cfg.Host == "" || p.cfg.Port == "" || p.cfg.Username == "" || p.cfg.Password == "" {
+		return ErrSMTPNotConfigured
+	}
+
+	addr := net.JoinHostPort(p.cfg.Host, p.cfg.Port)
+	tlsCfg := &tls.Config{ServerName: p.cfg.Host}
+
+	client, err := p.dial(addr, tlsCfg)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	auth := gosmtp.PlainAuth("", p.cfg.Username, p.cfg.Password, p.cfg.Host)
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("smtp auth: %w", err)
+	}
+	return client.Quit()
 }
 
 // Send dials the SMTP server once, authenticates, then sends one message per

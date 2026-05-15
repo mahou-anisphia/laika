@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -16,9 +15,10 @@ type Config struct {
 	RateLimit  RateLimit
 }
 
-// Load reads configuration from environment variables and validates required
-// fields. Returns an error listing every missing required var so the operator
-// fixes them in one pass instead of re-running after each.
+// Load reads configuration from environment variables. Nothing is required at
+// boot — both email and Discord are best-effort: missing or broken credentials
+// surface as a degraded module via /health, not a refusal to start. This lets
+// a single binary cover email-only, Discord-only, and full deployments.
 //
 // Each email flow is discovered by convention: SMTP_<FLOW>_HOST,
 // SMTP_<FLOW>_PORT, etc. To add a new flow, add the corresponding env vars and
@@ -46,25 +46,7 @@ func Load() (Config, error) {
 		},
 	}
 
-	if err := cfg.validate(); err != nil {
-		return Config{}, err
-	}
 	return cfg, nil
-}
-
-// validate is the single place to declare which env vars must be set for the
-// process to start. Add new required vars here. SMTP flows are intentionally
-// not validated — a flow with empty creds fails at request time, not at boot,
-// so a Discord-only deployment can still start.
-func (c Config) validate() error {
-	var missing []string
-	if c.Discord.BotToken == "" {
-		missing = append(missing, "DISCORD_BOT_TOKEN")
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
-	}
-	return nil
 }
 
 func getenvInt(key string, def int) int {
